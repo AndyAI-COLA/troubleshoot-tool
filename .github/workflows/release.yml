@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/troubleshoot-tool
+
+jobs:
+  # ── Job 1: Lint ──
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax check
+        run: |
+          python -m py_compile troubleshooter.py
+          python -m py_compile app/main.py
+          python -m py_compile app/core/engine.py
+          python -m py_compile app/core/database.py
+          python -m py_compile app/core/knowledge.py
+          python -m py_compile app/models/schemas.py
+          python -m py_compile app/api/scenarios.py
+          python -m py_compile app/api/diagnosis.py
+          python -m py_compile app/api/search.py
+          python -m py_compile app/api/reports.py
+          python -m py_compile app/api/history.py
+      - name: Validate JSON
+        run: python -c "import json; json.load(open('knowledge_base.json'))"
+
+  # ── Job 2: Docker build & push ──
+  docker:
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f1-2)
+            echo "tags=${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:${MINOR},${DOCKER_IMAGE}:${MAJOR},${DOCKER_IMAGE}:latest" >> $GITHUB_OUTPUT
+          else
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            echo "tags=${DOCKER_IMAGE}:main-latest,${DOCKER_IMAGE}:main-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Job 3: Build Python package ──
+  build-package:
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build tools
+        run: pip install build
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+
+  # ── Job 4: Publish to PyPI (tag only) ──
+  publish-pypi:
+    runs-on: ubuntu-latest
+    needs: build-package
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  # ── Job 5: GitHub Release ──
+  release:
+    runs-on: ubuntu-latest
+    needs: [docker, build-package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+
+      - name: Generate CHANGELOG
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --oneline --no-decorate)
+          else
+            LOG=$(git log ${PREV_TAG}..HEAD --oneline --no-decorate)
+          fi
+          # 写入临时文件避免转义问题
+          echo "## What's Changed" > /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          echo "$LOG" | while read line; do echo "- $line" >> /tmp/changelog.md; done
+          echo "" >> /tmp/changelog.md
+          echo "## Docker" >> /tmp/changelog.md
+          echo "\`\`\`" >> /tmp/changelog.md
+          echo "docker pull ${{ env.DOCKER_IMAGE }}:${VERSION}" >> /tmp/changelog.md
+          echo "\`\`\`" >> /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          echo "## Install" >> /tmp/changelog.md
+          echo "\`\`\`" >> /tmp/changelog.md
+          echo "pip install troubleshoot-tool==${VERSION}" >> /tmp/changelog.md
+          echo "\`\`\`" >> /tmp/changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: /tmp/changelog.md
+          files: dist/*
+          generate_release_notes: true

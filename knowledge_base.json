@@ -1,0 +1,1034 @@
+{
+  "version": "2.0.0",
+  "description": "故障排查知识库 v2.0 - 预置常见故障场景及解决方案",
+  "scenarios": {
+    "service_start_fail": {
+      "name": "服务启动失败",
+      "category": "服务管理",
+      "description": "服务无法正常启动，可能由端口占用、配置错误、依赖缺失等原因导致",
+      "symptoms": [
+        "服务启动后立即退出",
+        "报错 'Address already in use'",
+        "报错 'Permission denied'",
+        "报错 'ModuleNotFoundError' 或 'ImportError'"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "请描述启动时看到的错误信息（关键词即可）：",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "这是哪个服务？请提供服务名或端口号：",
+          "type": "text"
+        },
+        {
+          "id": "q3",
+          "text": "服务是通过什么方式启动的？",
+          "type": "choice",
+          "options": ["systemd / service", "docker", "直接命令行运行", "IDE 运行", "其他"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_port",
+          "command": "netstat -ano | findstr {port}",
+          "description": "检查端口是否被占用",
+          "platform": "windows"
+        },
+        {
+          "id": "check_port_linux",
+          "command": "ss -tlnp | grep {port} || netstat -tlnp 2>/dev/null | grep {port}",
+          "description": "检查端口是否被占用",
+          "platform": "linux"
+        },
+        {
+          "id": "check_process",
+          "command": "tasklist | findstr {service_name}",
+          "description": "检查服务进程是否在运行",
+          "platform": "windows"
+        },
+        {
+          "id": "check_process_linux",
+          "command": "ps aux | grep {service_name} | grep -v grep",
+          "description": "检查服务进程是否在运行",
+          "platform": "linux"
+        },
+        {
+          "id": "check_disk",
+          "command": "wmic logicaldisk get size,freespace,caption",
+          "description": "检查磁盘空间",
+          "platform": "windows"
+        },
+        {
+          "id": "check_disk_linux",
+          "command": "df -h",
+          "description": "检查磁盘空间",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "端口被占用",
+          "condition": "端口被占用",
+          "steps": [
+            "确认占用端口的进程：netstat -ano | findstr <端口号>",
+            "终止占用进程：taskkill /PID <PID> /F （Windows）或 kill -9 <PID>（Linux）",
+            "或修改服务配置使用其他端口",
+            "重新启动服务"
+          ]
+        },
+        {
+          "title": "权限不足",
+          "condition": "Permission denied",
+          "steps": [
+            "以管理员/root 权限运行服务",
+            "检查文件权限：chmod +x <可执行文件>",
+            "检查配置文件是否可读"
+          ]
+        },
+        {
+          "title": "依赖缺失",
+          "condition": "ModuleNotFoundError / ImportError / 找不到模块",
+          "steps": [
+            "安装缺失依赖：pip install <package> / npm install <package>",
+            "确认使用正确的虚拟环境",
+            "检查 requirements.txt / package.json 是否完整",
+            "重新安装所有依赖"
+          ]
+        },
+        {
+          "title": "配置文件错误",
+          "condition": "配置错误 / 语法错误 / JSON 解析失败",
+          "steps": [
+            "检查配置文件语法是否正确",
+            "确认配置项名称和格式",
+            "查看服务日志获取详细错误信息",
+            "使用默认配置文件进行对比"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "查看完整错误日志",
+            "检查系统资源（CPU、内存、磁盘）是否充足",
+            "确认服务版本与系统兼容性",
+            "尝试重启系统后再次启动"
+          ]
+        }
+      ]
+    },
+
+    "port_occupied": {
+      "name": "端口占用",
+      "category": "网络",
+      "description": "目标端口已被其他进程占用，导致服务无法绑定该端口",
+      "symptoms": [
+        "报错 'Address already in use'",
+        "报错 'EADDRINUSE'",
+        "报错 '端口已被占用'"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "被占用的端口号是多少？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "该端口应该由哪个服务使用？",
+          "type": "text"
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_port",
+          "command": "netstat -ano | findstr {port}",
+          "description": "查找占用端口的进程",
+          "platform": "windows"
+        },
+        {
+          "id": "check_port_linux",
+          "command": "lsof -i :{port} || ss -tlnp | grep :{port}",
+          "description": "查找占用端口的进程",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "释放被占用的端口",
+          "condition": "默认",
+          "steps": [
+            "确认占用端口的进程 PID",
+            "评估是否可以终止该进程",
+            "Windows: taskkill /PID <PID> /F",
+            "Linux: kill -9 <PID>",
+            "等待几秒后重新启动服务",
+            "如果不能终止，考虑更换服务端口"
+          ]
+        }
+      ]
+    },
+
+    "connection_timeout": {
+      "name": "连接超时",
+      "category": "网络",
+      "description": "无法在规定时间内建立网络连接",
+      "symptoms": [
+        "连接数据库超时",
+        "API 请求超时",
+        "SSH 连接超时",
+        "Ping 不通目标地址"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "连接的目标地址/IP 是什么？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "使用的是哪个端口？",
+          "type": "text"
+        },
+        {
+          "id": "q3",
+          "text": "超时前大约等了多长时间？",
+          "type": "choice",
+          "options": ["几秒钟", "几十秒", "几分钟", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "ping",
+          "command": "ping -n 4 {target}",
+          "description": "测试网络连通性",
+          "platform": "windows"
+        },
+        {
+          "id": "ping_linux",
+          "command": "ping -c 4 {target}",
+          "description": "测试网络连通性",
+          "platform": "linux"
+        },
+        {
+          "id": "traceroute",
+          "command": "tracert {target}",
+          "description": "追踪路由路径",
+          "platform": "windows"
+        },
+        {
+          "id": "traceroute_linux",
+          "command": "traceroute {target} || tracepath {target}",
+          "description": "追踪路由路径",
+          "platform": "linux"
+        },
+        {
+          "id": "dns",
+          "command": "nslookup {target}",
+          "description": "检查 DNS 解析",
+          "platform": "windows"
+        },
+        {
+          "id": "dns_linux",
+          "command": "dig {target} || nslookup {target}",
+          "description": "检查 DNS 解析",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "网络不通",
+          "condition": "Ping 不通",
+          "steps": [
+            "检查本机网络连接是否正常",
+            "确认防火墙是否阻止了连接",
+            "联系网络管理员检查链路状态",
+            "尝试使用其他网络（如切换 WiFi/有线）"
+          ]
+        },
+        {
+          "title": "DNS 解析失败",
+          "condition": "DNS 解析失败 / 无法解析域名",
+          "steps": [
+            "尝试直接用 IP 地址连接",
+            "检查 /etc/hosts 或 C:\\Windows\\System32\\drivers\\etc\\hosts",
+            "更换 DNS 服务器（如 8.8.8.8 或 114.114.114.114）",
+            "刷新 DNS 缓存：ipconfig /flushdns"
+          ]
+        },
+        {
+          "title": "服务端口未监听",
+          "condition": "连接被拒绝 / Connection refused",
+          "steps": [
+            "确认目标服务是否已启动",
+            "检查目标服务监听的端口和地址",
+            "确认防火墙是否放行该端口",
+            "检查是否有中间代理或负载均衡"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "检查本机防火墙和安全软件设置",
+            "检查路由表是否正确",
+            "确认目标地址和端口无误",
+            "尝试增加客户端超时时间",
+            "查看中间网络设备（路由器、交换机）状态"
+          ]
+        }
+      ]
+    },
+
+    "disk_full": {
+      "name": "磁盘空间不足",
+      "category": "系统资源",
+      "description": "磁盘剩余空间不足，影响服务正常运行",
+      "symptoms": [
+        "报错 'No space left on device'",
+        "服务写日志失败",
+        "数据库无法写入",
+        "系统运行缓慢"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "哪个磁盘/分区空间不足？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "是什么导致空间被大量占用？",
+          "type": "choice",
+          "options": ["日志文件", "数据库文件", "临时文件", "应用数据", "不清楚"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "disk_usage",
+          "command": "wmic logicaldisk get size,freespace,caption",
+          "description": "查看磁盘使用情况",
+          "platform": "windows"
+        },
+        {
+          "id": "disk_usage_linux",
+          "command": "df -h",
+          "description": "查看磁盘使用情况",
+          "platform": "linux"
+        },
+        {
+          "id": "large_files",
+          "command": "powershell -Command \"Get-ChildItem -Path C:\\ -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 20 FullName, @{N='SizeMB';E={[math]::Round($_.Length/1MB,2)}}\"",
+          "description": "查找最大的文件",
+          "platform": "windows"
+        },
+        {
+          "id": "large_files_linux",
+          "command": "du -ah / 2>/dev/null | sort -rh | head -20",
+          "description": "查找占用空间最大的目录/文件",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "清理日志文件",
+          "condition": "日志文件",
+          "steps": [
+            "确认日志文件位置并检查大小",
+            "删除旧的/已归档的日志",
+            "配置日志轮转（logrotate / 自带配置）",
+            "设置日志文件最大保留大小"
+          ]
+        },
+        {
+          "title": "清理临时文件",
+          "condition": "临时文件",
+          "steps": [
+            "清理系统临时目录",
+            "Windows: cleanmgr 或手动清理 %TEMP%",
+            "Linux: rm -rf /tmp/*（注意不要删除正在使用的文件）",
+            "检查应用临时目录是否可清理"
+          ]
+        },
+        {
+          "title": "通用清理",
+          "condition": "默认",
+          "steps": [
+            "运行系统自带的磁盘清理工具",
+            "检查并清理不需要的应用和数据",
+            "考虑扩展磁盘容量或添加新磁盘",
+            "配置数据自动清理策略"
+          ]
+        }
+      ]
+    },
+
+    "high_cpu": {
+      "name": "CPU 使用率过高",
+      "category": "系统资源",
+      "description": "CPU 占用率持续过高，导致系统响应缓慢",
+      "symptoms": [
+        "系统明显变慢",
+        "服务响应延迟",
+        "风扇高速运转",
+        "监控告警 CPU > 90%"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "CPU 使用率大概多少？持续多久了？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "是否有特定进程占用 CPU 较多？",
+          "type": "choice",
+          "options": ["自己的服务", "系统进程", "未知进程", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "cpu_top",
+          "command": "tasklist /FO CSV | sort /R /+60",
+          "description": "按 CPU 排序查看进程",
+          "platform": "windows"
+        },
+        {
+          "id": "cpu_top_linux",
+          "command": "top -bn1 | head -20",
+          "description": "查看 CPU 使用率最高的进程",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "应用导致 CPU 过高",
+          "condition": "自己的服务",
+          "steps": [
+            "检查应用日志是否有异常循环或死循环",
+            "使用 profiling 工具分析热点代码",
+            "检查是否有内存泄漏导致频繁 GC",
+            "考虑增加服务实例做负载均衡"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "确认占用 CPU 的具体进程",
+            "检查是否有异常进程（挖矿程序等）",
+            "检查系统计划任务是否有异常",
+            "考虑重启占用资源的进程",
+            "如果是容器环境，检查资源限制配置"
+          ]
+        }
+      ]
+    },
+
+    "memory_high": {
+      "name": "内存使用率过高",
+      "category": "系统资源",
+      "description": "内存占用过高，可能导致 OOM（Out of Memory）",
+      "symptoms": [
+        "系统响应缓慢",
+        "频繁使用交换分区/虚拟内存",
+        "服务被 OOM Killer 杀死",
+        "报错 'OutOfMemoryError'"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "系统总内存多大？当前使用率多少？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "是否观察到内存持续增长？",
+          "type": "choice",
+          "options": ["是，持续增长", "突然飙升", "一直都很高", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "mem_usage",
+          "command": "tasklist /FO CSV",
+          "description": "查看进程内存使用情况",
+          "platform": "windows"
+        },
+        {
+          "id": "mem_usage_linux",
+          "command": "free -h && echo '---' && ps aux --sort=-%mem | head -15",
+          "description": "查看内存使用和占用最多的进程",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "内存持续增长（可能泄漏）",
+          "condition": "是，持续增长",
+          "steps": [
+            "使用内存分析工具检测泄漏",
+            "Java: jmap + MAT 分析堆转储",
+            "Python: tracemalloc / memory_profiler",
+            "Node.js: --inspect + Chrome DevTools",
+            "修复泄漏点后重启服务"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "确认内存占用最多的进程",
+            "检查是否有不必要的进程在运行",
+            "调整应用内存限制",
+            "考虑增加物理内存或调整 swap",
+            "优化数据库连接池大小"
+          ]
+        }
+      ]
+    },
+
+    "ssl_cert": {
+      "name": "SSL/TLS 证书问题",
+      "category": "安全",
+      "description": "SSL 证书过期、不匹配或配置错误",
+      "symptoms": [
+        "报错 'certificate has expired'",
+        "报错 'SSL_ERROR_SYSCALL'",
+        "浏览器提示不安全",
+        "HTTPS 连接失败"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "访问的域名是什么？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "使用的是自签名证书还是 CA 签发的？",
+          "type": "choice",
+          "options": ["CA 签发（如 Let's Encrypt）", "自签名证书", "企业内部 CA", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "cert_check",
+          "command": "echo | powershell -Command \"try {{ $r = Invoke-WebRequest -Uri 'https://{domain}' -UseBasicParsing; $r.BaseResponse } catch {{ $_.Exception.InnerException }}\"",
+          "description": "检查证书信息",
+          "platform": "windows"
+        },
+        {
+          "id": "cert_check_linux",
+          "command": "echo | openssl s_client -connect {domain}:443 2>/dev/null | openssl x509 -noout -dates -subject",
+          "description": "检查证书有效期和主体",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "证书过期",
+          "condition": "expired",
+          "steps": [
+            "确认证书过期时间",
+            "重新申请或续签证书",
+            "Let's Encrypt: certbot renew",
+            "更新 Nginx/Apache 配置中的证书路径",
+            "重启 Web 服务",
+            "验证新证书生效"
+          ]
+        },
+        {
+          "title": "证书不匹配",
+          "condition": "mismatch / 不匹配",
+          "steps": [
+            "检查证书是否与域名匹配",
+            "确认证书包含正确的 SAN（Subject Alternative Name）",
+            "重新签发包含正确域名的证书",
+            "检查配置中证书链是否完整"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "确认系统时间是否正确",
+            "检查中间证书是否安装",
+            "确认 TLS 版本兼容性",
+            "使用在线工具（如 SSL Labs）检测"
+          ]
+        }
+      ]
+    },
+
+    "dns_resolution": {
+      "name": "DNS 解析失败",
+      "category": "网络",
+      "description": "域名无法解析为 IP 地址",
+      "symptoms": [
+        "报错 'Name or service not known'",
+        "报错 'Could not resolve host'",
+        "报错 'DNS_PROBE_FINISHED_NXDOMAIN'",
+        "无法通过域名访问服务"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "无法解析的域名是什么？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "是所有域名都无法解析还是只有部分？",
+          "type": "choice",
+          "options": ["所有域名", "只有特定域名", "只有内网域名", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "dns_check",
+          "command": "nslookup {domain}",
+          "description": "测试 DNS 解析",
+          "platform": "windows"
+        },
+        {
+          "id": "dns_check_linux",
+          "command": "dig {domain} || nslookup {domain}",
+          "description": "测试 DNS 解析",
+          "platform": "linux"
+        },
+        {
+          "id": "dns_server",
+          "command": "ipconfig /all | findstr DNS",
+          "description": "查看当前 DNS 服务器配置",
+          "platform": "windows"
+        },
+        {
+          "id": "dns_server_linux",
+          "command": "cat /etc/resolv.conf",
+          "description": "查看 DNS 配置",
+          "platform": "linux"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "所有域名无法解析",
+          "condition": "所有域名",
+          "steps": [
+            "检查网络连接是否正常",
+            "确认 DNS 服务器配置是否正确",
+            "尝试更换 DNS：8.8.8.8 / 114.114.114.114",
+            "刷新 DNS 缓存",
+            "检查防火墙是否阻止了 DNS 请求（53 端口）"
+          ]
+        },
+        {
+          "title": "特定域名无法解析",
+          "condition": "只有特定域名 / 只有内网域名",
+          "steps": [
+            "确认域名拼写是否正确",
+            "内网域名检查 /etc/hosts 或企业 DNS 配置",
+            "检查域名是否已过期或被删除",
+            "尝试使用 nslookup 指定不同 DNS 服务器查询",
+            "联系域名管理员确认 DNS 记录"
+          ]
+        }
+      ]
+    },
+
+    "permission_denied": {
+      "name": "权限不足 / 访问被拒绝",
+      "category": "权限管理",
+      "description": "文件、目录或服务因权限不足而无法访问或操作",
+      "symptoms": [
+        "报错 'Permission denied'",
+        "报错 'Access is denied'",
+        "报错 'Operation not permitted'",
+        "无法读取/写入/执行文件",
+        "无法连接数据库（认证失败）"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "对哪个文件/目录/服务操作时出错？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "执行的操作是什么？",
+          "type": "choice",
+          "options": ["读取/写入文件", "执行脚本/程序", "访问网络服务", "修改系统配置", "其他"]
+        },
+        {
+          "id": "q3",
+          "text": "当前使用的用户身份是？",
+          "type": "choice",
+          "options": ["普通用户", "root / 管理员", "服务账号", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_file_perm",
+          "command": "ls -la {q1}",
+          "description": "查看文件/目录权限",
+          "platform": "linux"
+        },
+        {
+          "id": "check_file_perm_win",
+          "command": "icacls \"{q1}\"",
+          "description": "查看文件/目录权限",
+          "platform": "windows"
+        },
+        {
+          "id": "check_user",
+          "command": "whoami && id",
+          "description": "查看当前用户和所属组",
+          "platform": "linux"
+        },
+        {
+          "id": "check_user_win",
+          "command": "whoami /priv",
+          "description": "查看当前用户权限",
+          "platform": "windows"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "文件/目录权限不足",
+          "condition": "读取/写入文件 / 执行脚本/程序",
+          "steps": [
+            "确认当前用户身份: whoami",
+            "检查文件权限: ls -la <文件> / icacls <文件>",
+            "修改权限: chmod 755 <文件> 或 chmod +x <可执行文件>",
+            "修改属主: chown <user>:<group> <文件>",
+            "必要时使用 sudo 提权（谨慎操作）",
+            "避免长期使用 root 运行应用"
+          ]
+        },
+        {
+          "title": "网络服务认证失败",
+          "condition": "访问网络服务",
+          "steps": [
+            "确认用户名和密码是否正确",
+            "检查服务端用户权限配置",
+            "检查数据库 GRANT 授权是否完整",
+            "确认 API Key / Token 是否有效",
+            "检查防火墙/安全组是否放行"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "确认操作的用户身份和权限",
+            "检查 SELinux / AppArmor 策略",
+            "查看系统审计日志: audit.log / event.log",
+            "使用 sudo -l 查看 sudo 权限",
+            "咨询管理员授予所需权限"
+          ]
+        }
+      ]
+    },
+
+    "config_error": {
+      "name": "配置错误",
+      "category": "系统管理",
+      "description": "服务配置文件语法错误、格式问题或配置项缺失导致服务异常",
+      "symptoms": [
+        "服务启动报 'config error' / 'parse error'",
+        "报错 'YAMLException' / 'JSON parse error'",
+        "服务启动但行为异常",
+        "环境变量未生效",
+        "配置项未被识别"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "哪个服务/应用出了问题？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "配置文件格式是什么？",
+          "type": "choice",
+          "options": ["YAML (.yml/.yaml)", "JSON (.json)", "INI (.ini/.conf)", "TOML (.toml)", "XML (.xml)", "Properties (.properties)", "环境变量 (.env)", "不确定"]
+        },
+        {
+          "id": "q3",
+          "text": "最近是否修改过配置文件？",
+          "type": "choice",
+          "options": ["是，刚修改过", "否，一直没改过", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_env",
+          "command": "env | sort",
+          "description": "查看当前环境变量",
+          "platform": "linux"
+        },
+        {
+          "id": "check_env_win",
+          "command": "set",
+          "description": "查看当前环境变量",
+          "platform": "windows"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "YAML/JSON 语法错误",
+          "condition": "YAML / JSON",
+          "steps": [
+            "使用在线校验工具检查语法 (yamlLint / jsonlint)",
+            "注意缩进一致性（YAML 不要混用 Tab 和空格）",
+            "检查括号、引号是否匹配",
+            "对比 git diff 查看最近修改",
+            "恢复到上一个正常版本进行对比"
+          ]
+        },
+        {
+          "title": "环境变量未生效",
+          "condition": "环境变量 / .env",
+          "steps": [
+            "检查 .env 文件路径是否正确",
+            "确认变量名拼写和大小写",
+            "重新加载环境变量: source .env / export $(cat .env | xargs)",
+            "检查是否有空格或特殊字符未加引号",
+            "确认服务进程是否需要重启才能读取新变量"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "查看服务日志获取详细错误信息",
+            "检查配置文件编码（应为 UTF-8 无 BOM）",
+            "使用配置文件校验工具: nginx -t / httpd -t / java -jar config-check.jar",
+            "对比文档确认配置项名称和值的格式",
+            "尝试使用最小化配置启动"
+          ]
+        }
+      ]
+    },
+
+    "firewall_block": {
+      "name": "防火墙 / 安全组拦截",
+      "category": "网络安全",
+      "description": "本机防火墙或云安全组阻止了网络通信",
+      "symptoms": [
+        "telnet / nc 端口不通",
+        "本机可访问但外部无法访问",
+        "SSH 连接被拒绝",
+        "HTTP 请求无响应",
+        "云服务器从外部无法连通"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "被阻止的端口号是多少？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "服务器部署在哪里？",
+          "type": "choice",
+          "options": ["本地物理机", "VMware/VirtualBox 虚拟机", "阿里云", "腾讯云", "AWS", "Docker 容器", "其他云/IDC"]
+        },
+        {
+          "id": "q3",
+          "text": "本机 localhost 能访问该服务吗？",
+          "type": "choice",
+          "options": ["可以", "也不行", "没试过"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_listen",
+          "command": "netstat -ano | findstr {port}",
+          "description": "检查服务是否在监听端口",
+          "platform": "windows"
+        },
+        {
+          "id": "check_listen_linux",
+          "command": "ss -tlnp | grep :{port} || netstat -tlnp 2>/dev/null | grep :{port}",
+          "description": "检查服务是否在监听端口",
+          "platform": "linux"
+        },
+        {
+          "id": "check_fw_linux",
+          "command": "sudo iptables -L -n 2>/dev/null || sudo nft list ruleset 2>/dev/null",
+          "description": "查看 iptables/nftables 规则",
+          "platform": "linux"
+        },
+        {
+          "id": "check_fw_win",
+          "command": "netsh advfirewall firewall show rule name=all dir=in | findstr /i \"{port}\"",
+          "description": "查看 Windows 入站防火墙规则",
+          "platform": "windows"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "本地防火墙阻止",
+          "condition": "本地物理机 / VMware / 虚拟机",
+          "steps": [
+            "确认服务已在监听: ss -tlnp / netstat -ano",
+            "放行端口: sudo iptables -A INPUT -p tcp --dport <端口> -j ACCEPT",
+            "或关闭防火墙测试: sudo systemctl stop firewalld",
+            "Windows: 高级安全防火墙 → 新建入站规则",
+            "测试通过后记得配置正式规则"
+          ]
+        },
+        {
+          "title": "云安全组未放行",
+          "condition": "阿里云 / 腾讯云 / AWS / 其他云",
+          "steps": [
+            "登录云控制台 → 安全组",
+            "添加入站规则: 允许 TCP <端口>",
+            "设置授权对象（来源 IP），生产环境不要用 0.0.0.0/0",
+            "检查是否有多层安全组嵌套",
+            "确认 ECS 实例本身的安全组已关联"
+          ]
+        },
+        {
+          "title": "Docker 端口映射",
+          "condition": "Docker 容器",
+          "steps": [
+            "检查容器端口映射: docker port <容器名>",
+            "确认 -p 参数: docker run -p <宿主机端口>:<容器端口>",
+            "检查宿主机防火墙是否放行宿主机端口",
+            "docker network inspect 查看网络配置"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "确认服务正常监听: ss -tlnp / netstat -ano",
+            "本地测试: curl localhost:<端口> / telnet 127.0.0.1 <端口>",
+            "检查 iptables / firewalld / ufw / Windows Firewall 规则",
+            "检查路由和 NAT 配置",
+            "使用 traceroute 定位丢包节点"
+          ]
+        }
+      ]
+    },
+
+    "service_high_latency": {
+      "name": "服务响应高延迟",
+      "category": "性能",
+      "description": "服务可访问但响应时间过长，用户体验差",
+      "symptoms": [
+        "HTTP 接口响应 > 3秒",
+        "数据库查询缓慢",
+        "API 调用经常超时",
+        "页面加载时间过长",
+        "用户投诉系统很慢"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "哪个接口/操作特别慢？",
+          "type": "text"
+        },
+        {
+          "id": "q2",
+          "text": "延迟大约在什么量级？",
+          "type": "choice",
+          "options": ["几百毫秒", "1-3 秒", "3-10 秒", "经常超时(>10s)"]
+        },
+        {
+          "id": "q3",
+          "text": "是一直慢还是突然变慢？",
+          "type": "choice",
+          "options": ["一直都比较慢", "突然变慢", "高峰期才慢", "不确定"]
+        }
+      ],
+      "diagnostics": [
+        {
+          "id": "check_load",
+          "command": "uptime",
+          "description": "查看系统负载",
+          "platform": "linux"
+        },
+        {
+          "id": "check_load_win",
+          "command": "powershell -Command \"Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, CPU, WorkingSet64 | Format-Table -AutoSize\"",
+          "description": "查看 CPU 消耗最高的进程",
+          "platform": "windows"
+        },
+        {
+          "id": "check_connections",
+          "command": "ss -s 2>/dev/null || netstat -s 2>/dev/null | head -20",
+          "description": "查看网络连接统计",
+          "platform": "linux"
+        },
+        {
+          "id": "check_connections_win",
+          "command": "netstat -ano | findstr ESTISHED | find /c /v \"\"",
+          "description": "统计当前活跃连接数",
+          "platform": "windows"
+        }
+      ],
+      "solutions": [
+        {
+          "title": "数据库慢查询",
+          "condition": "数据库查询",
+          "steps": [
+            "开启慢查询日志: slow_query_log = ON",
+            "分析慢查询: mysqldumpslow / pg_stat_statements",
+            "检查是否缺少索引: EXPLAIN <query>",
+            "检查数据库连接池配置（是否耗尽）",
+            "考虑读写分离或缓存热点数据"
+          ]
+        },
+        {
+          "title": "连接池耗尽",
+          "condition": "连接池",
+          "steps": [
+            "检查当前连接数: SHOW PROCESSLIST / ss -s",
+            "调整连接池大小: min-idle / max-active",
+            "检查连接泄漏: 是否有未关闭的连接",
+            "添加连接超时配置: connection-timeout",
+            "考虑使用连接池监控"
+          ]
+        },
+        {
+          "title": "系统负载过高",
+          "condition": "负载高",
+          "steps": [
+            "检查负载: uptime（load average 应 < CPU 核数）",
+            "定位高 CPU 进程: top / ps aux --sort=-%cpu",
+            "定位高 IO: iostat -x 1 / iotop",
+            "检查内存是否频繁 swap: vmstat 1",
+            "考虑扩容或限流"
+          ]
+        },
+        {
+          "title": "通用排查",
+          "condition": "默认",
+          "steps": [
+            "使用 curl -w 计时: curl -o /dev/null -s -w '%{time_total}' <url>",
+            "检查网络延迟: ping <目标>、traceroute <目标>",
+            "查看应用日志中的耗时记录",
+            "检查 DNS 解析时间",
+            "使用 APM 工具（如 SkyWalking、Pinpoint）定位瓶颈"
+          ]
+        }
+      ]
+    }
+  },
+  "categories": {
+    "服务管理": {"icon": "⚙️", "color": "#3498db"},
+    "网络": {"icon": "🌐", "color": "#e67e22"},
+    "系统资源": {"icon": "💻", "color": "#e74c3c"},
+    "安全": {"icon": "🔒", "color": "#2ecc71"},
+    "权限管理": {"icon": "🔐", "color": "#9b59b6"},
+    "系统管理": {"icon": "🔧", "color": "#1abc9c"},
+    "网络安全": {"icon": "🛡️", "color": "#e74c3c"},
+    "性能": {"icon": "⚡", "color": "#f39c12"}
+  }
+}

@@ -1,0 +1,44 @@
+services:
+  app:
+    build: .
+    container_name: troubleshooter
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data
+      - app-reports:/app/reports
+      - ./knowledge_base.json:/app/knowledge_base.json
+      - ./custom_scenarios.json:/app/custom_scenarios.json
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:alpine
+    container_name: troubleshooter-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+volumes:
+  app-data:
+  app-reports:
