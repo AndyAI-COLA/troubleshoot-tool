@@ -30,3 +30,6 @@ Issues = "https://github.com/aizhibo/troubleshoot-tool/issues"
 
 [project.scripts]
 troubleshoot = "troubleshooter:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "troubleshooter.py"]
