@@ -1,7 +1,7 @@
 # Troubleshoot Tool
 
-[![Release](https://img.shields.io/github/v/release/aizhibo/troubleshoot-tool)](https://github.com/aizhibo/troubleshoot-tool/releases)
-[![Docker](https://img.shields.io/badge/docker-latest-blue)](https://hub.docker.com/r/aizhibo/troubleshoot-tool)
+[![Release](https://img.shields.io/github/v/release/AndyAI-COLA/troubleshoot-tool)](https://github.com/AndyAI-COLA/troubleshoot-tool/releases)
+[![Docker](https://img.shields.io/badge/docker-latest-blue)](https://hub.docker.com/r/AndyAI-COLA/troubleshoot-tool)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 交互式故障排查助手 — 自动诊断服务器/网络故障，支持 Web 界面和 CLI。
@@ -24,8 +24,8 @@
 ### 方式一：Docker（推荐）
 
 ```bash
-docker pull aizhibo/troubleshoot-tool:latest
-docker run -d -p 8000:8000 --name troubleshooter aizhibo/troubleshoot-tool:latest
+docker pull AndyAI-COLA/troubleshoot-tool:latest
+docker run -d -p 8000:8000 --name troubleshooter AndyAI-COLA/troubleshoot-tool:latest
 ```
 
 浏览器访问 `http://localhost:8000`
@@ -33,7 +33,7 @@ docker run -d -p 8000:8000 --name troubleshooter aizhibo/troubleshoot-tool:lates
 ### 方式二：Docker Compose
 
 ```bash
-git clone https://github.com/aizhibo/troubleshoot-tool.git
+git clone https://github.com/AndyAI-COLA/troubleshoot-tool.git
 cd troubleshoot-tool
 docker-compose up -d
 ```
@@ -48,7 +48,7 @@ troubleshoot
 ### 方式四：源码运行
 
 ```bash
-git clone https://github.com/aizhibo/troubleshoot-tool.git
+git clone https://github.com/AndyAI-COLA/troubleshoot-tool.git
 cd troubleshoot-tool
 pip install -r requirements.txt
 uvicorn app.main:app --port 8000
