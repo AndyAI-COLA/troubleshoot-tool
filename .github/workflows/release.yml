@@ -1,4 +1,4 @@
-name: Release
+ï»¿name: Release
 
 on:
   push:
@@ -6,19 +6,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  release:
+    types: [created]
   workflow_dispatch:
     inputs:
       version:
-        description: '°æ±¾ºÅ£¨Èç 2.1.0£©£¬Áô¿ÕÔò×Ô¶¯´Ó pyproject.toml ¶ÁÈ¡'
+        description: 'ç‰ˆæœ¬å·ï¼ˆå¦‚ 2.1.0ï¼‰ï¼Œç•™ç©ºåˆ™è‡ªåŠ¨ä» pyproject.toml è¯»å–'
         required: false
         type: string
       publish_docker:
-        description: 'ÊÇ·ñ·¢²¼ Docker ¾µÏñ'
+        description: 'æ˜¯å¦å‘å¸ƒ Docker é•œåƒ'
         required: false
         default: true
         type: boolean
       publish_pypi:
-        description: 'ÊÇ·ñ·¢²¼µ½ PyPI'
+        description: 'æ˜¯å¦å‘å¸ƒåˆ° PyPI'
         required: false
         default: true
         type: boolean
@@ -31,10 +33,10 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/troubleshoot-tool
 
 jobs:
-  # --- Job 0: °æ±¾ºÅĞ£Ñé ---
+  # --- Job 0: ç‰ˆæœ¬å·æ ¡éªŒ ---
   verify-version:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +46,8 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
           elif [[ -n "${{ inputs.version }}" ]]; then
             TAG_VERSION="${{ inputs.version }}"
           else
@@ -53,11 +57,11 @@ jobs:
           echo "Tag version:   ${TAG_VERSION}"
           echo "PyPI version:  ${PYPI_VERSION}"
           if [[ "${TAG_VERSION}" != "${PYPI_VERSION}" ]]; then
-            echo "°æ±¾ºÅ²»Ò»ÖÂ£¡ÇëĞŞ¸Ä pyproject.toml ÖĞµÄ version = \"${TAG_VERSION}\" ºóÖØĞÂÌá½»"
+            echo "ç‰ˆæœ¬å·ä¸ä¸€è‡´ï¼è¯·ä¿®æ”¹ pyproject.toml ä¸­çš„ version = \"${TAG_VERSION}\" åé‡æ–°æäº¤"
             echo "tag: ${TAG_VERSION} != pyproject.toml: ${PYPI_VERSION}"
             exit 1
           fi
-          echo "°æ±¾ºÅĞ£ÑéÍ¨¹ı: ${TAG_VERSION}"
+          echo "ç‰ˆæœ¬å·æ ¡éªŒé€šè¿‡: ${TAG_VERSION}"
 
   # --- Job 1: Lint ---
   lint:
@@ -87,7 +91,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: [lint, verify-version]
-    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && inputs.publish_docker != false
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && inputs.publish_docker != false
     steps:
       - uses: actions/checkout@v4
       - name: Set up QEMU
@@ -132,7 +136,7 @@ jobs:
   build-package:
     runs-on: ubuntu-latest
     needs: lint
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -152,7 +156,7 @@ jobs:
   publish-pypi:
     runs-on: ubuntu-latest
     needs: build-package
-    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && inputs.publish_pypi != false
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && inputs.publish_pypi != false
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -168,7 +172,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [build-package, verify-version]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
         with:
