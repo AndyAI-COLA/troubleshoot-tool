@@ -6,6 +6,22 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '°æ±¾ºÅ£¨Èç 2.1.0£©£¬Áô¿ÕÔò×Ô¶¯´Ó pyproject.toml ¶ÁÈ¡'
+        required: false
+        type: string
+      publish_docker:
+        description: 'ÊÇ·ñ·¢²¼ Docker ¾µÏñ'
+        required: false
+        default: true
+        type: boolean
+      publish_pypi:
+        description: 'ÊÇ·ñ·¢²¼µ½ PyPI'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -15,7 +31,35 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/troubleshoot-tool
 
 jobs:
-  # â”€â”€ Job 1: Lint â”€â”€
+  # --- Job 0: °æ±¾ºÅÐ£Ñé ---
+  verify-version:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify version consistency
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            TAG_VERSION="${{ inputs.version }}"
+          else
+            TAG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          fi
+          PYPI_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "Tag version:   ${TAG_VERSION}"
+          echo "PyPI version:  ${PYPI_VERSION}"
+          if [[ "${TAG_VERSION}" != "${PYPI_VERSION}" ]]; then
+            echo "°æ±¾ºÅ²»Ò»ÖÂ£¡ÇëÐÞ¸Ä pyproject.toml ÖÐµÄ version = \"${TAG_VERSION}\" ºóÖØÐÂÌá½»"
+            echo "tag: ${TAG_VERSION} != pyproject.toml: ${PYPI_VERSION}"
+            exit 1
+          fi
+          echo "°æ±¾ºÅÐ£ÑéÍ¨¹ý: ${TAG_VERSION}"
+
+  # --- Job 1: Lint ---
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -39,50 +83,56 @@ jobs:
       - name: Validate JSON
         run: python -c "import json; json.load(open('knowledge_base.json'))"
 
-  # â”€â”€ Job 2: Docker build & push (ä»…åœ¨æŽ¨é€tagæ—¶è¿è¡Œ) â”€â”€
+  # --- Job 2: Docker build & push (multi-platform) ---
   docker:
     runs-on: ubuntu-latest
-    needs: lint
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, verify-version]
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && inputs.publish_docker != false
     steps:
       - uses: actions/checkout@v4
-
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Determine tags
-        id: tags
+      - name: Determine version
+        id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
-            MAJOR=$(echo $VERSION | cut -d. -f1)
-            MINOR=$(echo $VERSION | cut -d. -f1-2)
-            echo "tags=${DOCKER_IMAGE}:${VERSION},${DOCKER_IMAGE}:${MINOR},${DOCKER_IMAGE}:${MAJOR},${DOCKER_IMAGE}:latest" >> $GITHUB_OUTPUT
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
           else
-            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-            echo "tags=${DOCKER_IMAGE}:main-latest,${DOCKER_IMAGE}:main-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           fi
-
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f1-2)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+          echo "minor=${MINOR}" >> $GITHUB_OUTPUT
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.minor }}
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.major }}
+            ${{ env.DOCKER_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # â”€â”€ Job 3: Build Python package â”€â”€
+  # --- Job 3: Build Python package ---
   build-package:
     runs-on: ubuntu-latest
     needs: lint
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -98,11 +148,11 @@ jobs:
           name: python-package
           path: dist/
 
-  # â”€â”€ Job 4: Publish to PyPI (tag only) â”€â”€
+  # --- Job 4: Publish to PyPI ---
   publish-pypi:
     runs-on: ubuntu-latest
     needs: build-package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && inputs.publish_pypi != false
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -114,45 +164,113 @@ jobs:
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
-  # â”€â”€ Job 5: GitHub Release â”€â”€
+  # --- Job 5: GitHub Release (structured changelog) ---
   release:
     runs-on: ubuntu-latest
-    needs: [build-package]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-package, verify-version]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: python-package
           path: dist/
-
-      - name: Generate CHANGELOG
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Generate structured CHANGELOG
         id: changelog
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${{ steps.version.outputs.version }}
           PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | head -2 | tail -1)
           if [ -z "$PREV_TAG" ]; then
             LOG=$(git log --oneline --no-decorate)
           else
             LOG=$(git log ${PREV_TAG}..HEAD --oneline --no-decorate)
           fi
-          # å†™å…¥ä¸´æ—¶æ–‡ä»¶é¿å…è½¬ä¹‰é—®é¢˜
-          echo "## What's Changed" > /tmp/changelog.md
+          FEATS=""
+          FIXES=""
+          DOCS=""
+          OTHERS=""
+          while IFS= read -r line; do
+            if echo "$line" | grep -qiE '^\s*[0-9a-f]+\s+(feat|feature)[\(:]'; then
+              FEATS="${FEATS}- ${line#* }"$'\n'
+            elif echo "$line" | grep -qiE '^\s*[0-9a-f]+\s+(fix|bugfix|hotfix)[\(:]'; then
+              FIXES="${FIXES}- ${line#* }"$'\n'
+            elif echo "$line" | grep -qiE '^\s*[0-9a-f]+\s+(docs?|doc)[\(:]'; then
+              DOCS="${DOCS}- ${line#* }"$'\n'
+            else
+              OTHERS="${OTHERS}- ${line#* }"$'\n'
+            fi
+          done <<< "$LOG"
+          echo "## Release v${VERSION}" > /tmp/changelog.md
           echo "" >> /tmp/changelog.md
-          echo "$LOG" | while read line; do echo "- $line" >> /tmp/changelog.md; done
+          if [ -n "$FEATS" ]; then
+            echo "### New Features" >> /tmp/changelog.md
+            echo "$FEATS" >> /tmp/changelog.md
+          fi
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> /tmp/changelog.md
+            echo "$FIXES" >> /tmp/changelog.md
+          fi
+          if [ -n "$DOCS" ]; then
+            echo "### Documentation" >> /tmp/changelog.md
+            echo "$DOCS" >> /tmp/changelog.md
+          fi
+          if [ -n "$OTHERS" ]; then
+            echo "### Other Changes" >> /tmp/changelog.md
+            echo "$OTHERS" >> /tmp/changelog.md
+          fi
           echo "" >> /tmp/changelog.md
-          echo "## Install" >> /tmp/changelog.md
-          echo "\`\`\`" >> /tmp/changelog.md
+          echo "---" >> /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          echo "### Docker" >> /tmp/changelog.md
+          echo '```bash' >> /tmp/changelog.md
+          echo "docker pull ${DOCKER_IMAGE}:${VERSION}" >> /tmp/changelog.md
+          echo '```' >> /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          echo "### pip" >> /tmp/changelog.md
+          echo '```bash' >> /tmp/changelog.md
           echo "pip install troubleshoot-tool==${VERSION}" >> /tmp/changelog.md
-          echo "\`\`\`" >> /tmp/changelog.md
-
+          echo '```' >> /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          echo "### Full Changelog" >> /tmp/changelog.md
+          if [ -n "$PREV_TAG" ]; then
+            echo "https://github.com/${{ github.repository }}/compare/${PREV_TAG}...v${VERSION}" >> /tmp/changelog.md
+          else
+            echo "https://github.com/${{ github.repository }}/commits/v${VERSION}" >> /tmp/changelog.md
+          fi
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: /tmp/changelog.md
           files: dist/*
-          generate_release_notes: true
+          generate_release_notes: false
+      - name: Print release summary
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          echo "============================================="
+          echo "  Release v${VERSION} published!"
+          echo "============================================="
+          echo ""
+          echo "Install:"
+          echo "  pip install troubleshoot-tool==${VERSION}"
+          echo ""
+          echo "Docker:"
+          echo "  docker pull ${DOCKER_IMAGE}:${VERSION}"
+          echo "  docker run -d -p 8000:8000 ${DOCKER_IMAGE}:${VERSION}"
+          echo ""
+          echo "Release:"
+          echo "  https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+          echo "============================================="
